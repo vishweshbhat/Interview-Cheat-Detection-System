@@ -1,0 +1,160 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Interview Auditor</title>
+<style>
+    body {
+        font-family: 'Segoe UI', Tahoma, sans-serif;
+        background: #0f172a;
+        color: #f1f5f9;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        margin: 0;
+        padding: 20px;
+    }
+    h1 {
+        font-size: 2.8rem;
+        margin-bottom: 20px;
+        color: #38bdf8;
+    }
+    .container {
+        background: #1e293b;
+        border-radius: 14px;
+        padding: 30px;
+        width: 90%;
+        max-width: 700px;
+        text-align: center;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    }
+    .drop {
+        border: 2px dashed #38bdf8;
+        padding: 30px;
+        border-radius: 10px;
+        background: #0f172a;
+        margin-bottom: 20px;
+    }
+    input[type="file"] {
+        margin-top: 10px;
+        padding: 12px;
+        background: #38bdf8;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 1rem;
+        transition: background 0.3s;
+    }
+    input[type="file"]:hover {
+        background: #0ea5e9;
+    }
+    #status {
+        margin-top: 15px;
+        font-size: 1.1rem;
+        color: #a5f3fc;
+    }
+    #result {
+        margin-top: 30px;
+        padding: 20px;
+        background: #0f172a;
+        border-radius: 12px;
+    }
+    #result h2 {
+        color: #38bdf8;
+        margin-bottom: 12px;
+    }
+    #transcript {
+        text-align: left;
+        background: #1e293b;
+        padding: 15px;
+        border-radius: 8px;
+        font-size: 1rem;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        line-height: 1.6;
+        margin-bottom: 20px;
+    }
+    .score-box {
+        text-align: center;
+        margin-top: 10px;
+    }
+    .progress-container {
+        width: 100%;
+        height: 20px;
+        background: #334155;
+        border-radius: 10px;
+        overflow: hidden;
+        margin-top: 10px;
+    }
+    .progress-bar {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #38bdf8, #0ea5e9);
+        transition: width 1s ease-in-out;
+    }
+    #score {
+        font-size: 2rem;
+        color: #facc15;
+        font-weight: bold;
+        margin-top: 8px;
+    }
+</style>
+</head>
+<body>
+    <h1>Interview Auditor</h1>
+    <div class="container">
+        <div class="drop">
+            <p>Upload an audio or video file:</p>
+            <input type="file" id="file" accept="audio/*,video/*" />
+        </div>
+        <p id="status"></p>
+        <div id="result" style="display:none;">
+            <h2>Transcript</h2>
+            <div id="transcript"></div>
+            <h2>AI Likeness Score</h2>
+            <div class="score-box">
+                <div class="progress-container">
+                    <div class="progress-bar" id="progress-bar"></div>
+                </div>
+                <p><span id="score">0</span> / 100</p>
+            </div>
+        </div>
+    </div>
+
+<script>
+const fileInput = document.getElementById('file');
+const statusEl = document.getElementById('status');
+const resultEl = document.getElementById('result');
+const transcriptEl = document.getElementById('transcript');
+const scoreEl = document.getElementById('score');
+const progressBar = document.getElementById('progress-bar');
+
+fileInput.addEventListener('change', async () => {
+    if (!fileInput.files.length) return;
+    const file = fileInput.files[0];
+    statusEl.textContent = `Uploading "${file.name}"...`;
+    const fd = new FormData();
+    fd.append('file', file, file.name);
+    try {
+        const res = await fetch('http://127.0.0.1:8000/analyze', {
+            method: 'POST',
+            body: fd
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Failed');
+        statusEl.textContent = 'Done.';
+        resultEl.style.display = 'block';
+        transcriptEl.textContent = data.transcript || '(empty)';
+        const score = data.ai_likeness.score || 0;
+        scoreEl.textContent = score;
+        progressBar.style.width = Math.min(score, 100) + '%';
+    } catch (e) {
+        statusEl.textContent = 'Error: ' + e.message;
+    }
+});
+</script>
+</body>
+</html>

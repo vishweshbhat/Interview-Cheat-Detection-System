@@ -1,0 +1,8 @@
+ADD THIS IN README LATER
+
+backend:
+C:/Users/vishw/Desktop/interview_cheat_detection/app/.venv/Scripts/Activate.ps1cd 
+uvicorn main:app --reload
+
+frontend:
+python -m http.server 8080

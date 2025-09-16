@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+faster-whisper
+transformers
+torch
+numpy
+python-multipart
+onnxruntime
