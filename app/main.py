@@ -2,11 +2,11 @@ import os
 import re
 import math
 import uuid
-import time
 import shutil
 import tempfile
 import subprocess
 from typing import Dict, Any
+import numpy as np
 
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,7 +19,7 @@ from faster_whisper import WhisperModel
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-app = FastAPI(title="Interview Auditor API", version="1.0")
+app = FastAPI(title="Interview Auditor API", version="2.0")
 
 # Allow frontend access
 app.add_middleware(
@@ -96,6 +96,92 @@ def compute_perplexity(text: str) -> float:
     return math.exp(loss.item())
 
 
+def compute_burstiness(text: str) -> float:
+    sentences = re.split(r'[.!?]', text)
+    lengths = [len(s.split()) for s in sentences if s.strip()]
+    if len(lengths) < 2:
+        return 0.0
+    return np.std(lengths) / (np.mean(lengths) + 1e-6)
+
+
+def compute_repetition(text: str) -> float:
+    words = re.findall(r'\w+', text.lower())
+    if not words:
+        return 0.0
+    unique = set(words)
+    return 1 - (len(unique) / len(words))
+
+
+def compute_word_diversity(text: str) -> float:
+    words = re.findall(r'\w+', text.lower())
+    if not words:
+        return 0.0
+    return len(set(words)) / len(words)
+
+
+def compute_filler_ratio(text: str) -> float:
+    fillers = {"um", "uh", "like", "you know", "ah", "er", "hmm"}
+    words = re.findall(r'\w+', text.lower())
+    if not words:
+        return 0.0
+    filler_count = sum(word in fillers for word in words)
+    return filler_count / len(words)
+
+
+from sentence_transformers import SentenceTransformer, util
+
+_semantic_model = None
+
+def load_semantic_model():
+    global _semantic_model
+    if _semantic_model is None:
+        _semantic_model = SentenceTransformer("all-MiniLM-L6-v2")  # lightweight
+    return _semantic_model
+
+
+def compute_semantic_coherence(text: str) -> float:
+    model = load_semantic_model()
+    sentences = [s.strip() for s in re.split(r'[.!?]', text) if s.strip()]
+    if len(sentences) < 2:
+        return 1.0  # trivially coherent
+    embeddings = model.encode(sentences, convert_to_tensor=True)
+    sims = []
+    for i in range(len(embeddings) - 1):
+        sims.append(util.cos_sim(embeddings[i], embeddings[i+1]).item())
+    return max(0, min(1, sum(sims) / len(sims)))  # avg similarity
+
+
+def compute_ai_likeness(text: str) -> Dict[str, Any]:
+    ppl = compute_perplexity(text)
+    burstiness = compute_burstiness(text)
+    repetition = compute_repetition(text)
+    diversity = compute_word_diversity(text)
+    fillers = compute_filler_ratio(text)
+    coherence = compute_semantic_coherence(text)
+
+    # Weighted scoring
+    score = (
+        (100 - min(ppl / 2, 100)) * 0.5   # perplexity
+        + coherence * 100 * 0.2           # semantic coherence
+        + (1 - repetition) * 100 * 0.1    # repetition penalty
+        + diversity * 100 * 0.1           # diversity
+        + (1 - fillers) * 100 * 0.1       # filler penalty
+    )
+
+    return {
+        "score": round(max(0, min(100, score)), 1),
+        "features": {
+            "perplexity": ppl,
+            "burstiness": burstiness,
+            "repetition_rate": repetition,
+            "diversity": diversity,
+            "filler_ratio": fillers,
+            "coherence": coherence
+        }
+    }
+
+
+
 @app.post("/analyze")
 async def analyze(file: UploadFile = File(...)):
     tmp_dir = tempfile.mkdtemp(prefix="auditor_")
@@ -111,8 +197,7 @@ async def analyze(file: UploadFile = File(...)):
         if not text:
             return {"ok": True, "message": "No speech detected", "transcript": "", "metrics": None}
 
-        ppl = compute_perplexity(text)
-        score = max(0, min(100, 100 - (ppl / 2)))
+        ai_metrics = compute_ai_likeness(text)
 
         return {
             "ok": True,
@@ -122,10 +207,7 @@ async def analyze(file: UploadFile = File(...)):
                 "language": asr["language"],
                 "words": len(re.findall(r'\w+', text))
             },
-            "ai_likeness": {
-                "score": round(score, 1),
-                "features": {"perplexity": ppl}
-            }
+            "ai_likeness": ai_metrics
         }
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
